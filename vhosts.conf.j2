@@ -1,0 +1,28 @@
+# file: vhosts.conf.j2
+
+{% for vhost in apache_vhosts %}
+<VirtualHost *:80>
+  ServerName {{ vhost.servername }}
+  ServerAlias  www.{{ vhost.servername }}
+  DocumentRoot {{ vhost.documentroot }}
+{% if vhost.serveradmin is defined %}
+  ServerAdmin {{ vhost.serveradmin }}
+{% endif %}
+  <Directory "{{ vhost.documentroot }}">
+    AllowOverride None
+    Options Indexes FollowSymLinks MultiViews
+    Require all granted
+    RewriteEngine On
+    RewriteBase /
+    RewriteRule ^index\.php$ - [L]
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule . /index.php [L]
+  </Directory>
+  ErrorLog ${APACHE_LOG_DIR}/{{ vhost.servername }}-error.log
+  LogLevel warn
+  CustomLog ${APACHE_LOG_DIR}/{{ vhost.servername }}-access.log  combined
+</VirtualHost>
+
+{% endfor %}
+

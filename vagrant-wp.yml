@@ -1,0 +1,141 @@
+---
+# file: vagrant-wp.yml
+#
+- hosts: all
+  user: vagrant
+  sudo: True
+
+  vars:
+    apache_vhosts:
+      - {servername: "localhost", documentroot: "/vagrant/wordpress"}
+
+  handlers:
+    - name: reload apache
+      service: name=apache2 state=reloaded
+    - name: restart apache
+      service: name=apache2 state=restarted
+
+  tasks:
+  - name: Update APT package cache
+    command: apt-get update
+
+  - name: Install python-apt  (Required by ANSIBLE)
+    command: apt-get -y install python-apt
+
+  - name: Install packages
+    apt: package={{ item }} state=installed update_cache=yes cache_valid_time=3600
+    with_items:
+      - bash-completion
+      - postfix
+      - mailutils
+      - curl
+      - git-core
+      - openssl
+      - pkg-config
+      - vim
+      - apache2
+      - php5
+      - libapache2-mod-php5
+      - libapache2-mod-rpaf
+      - php5-gd
+      - php5-mcrypt
+      - php5-curl
+      - php-apc
+      - php5-tidy
+      - php5-cli
+      - linux-headers-generic
+      - build-essential
+      - dkms
+      - php5-xdebug
+      - mcrypt
+
+  - name: Install MySQL
+    apt: package={{ item }} state=installed force=yes update_cache=yes cache_valid_time=3600
+    with_items:
+      - mysql-server
+      - php5-mysql
+      - phpmyadmin
+
+  - name: Install python-mysqldb (required by ANSIBLE)
+    command: apt-get install python-mysqldb -y
+
+  - name: Upgrading the server
+    apt: upgrade=full
+
+  - name: Setting root user
+    mysql_user: name=root password=root priv=*.*:ALL,GRANT state=present
+    ignore_errors: true
+
+  - name: Configure Apache to enable phpmyadmin
+    lineinfile:
+      dest=/etc/apache2/apache2.conf
+      state=present
+      line="Include /etc/phpmyadmin/apache.conf"
+      insertafter=EOF
+
+  - name: Insert in Apache2.conf ServerName localhost
+    lineinfile:
+      dest=/etc/apache2/apache2.conf
+      state=present
+      line="ServerName localhost"
+      insertafter=EOF
+
+  - name: Enable apache rewrite module
+    command:  /usr/sbin/a2enmod rewrite
+
+  - name: Enable php5 mcrypt module
+    command:  /usr/sbin/php5enmod mcrypt
+
+  - name: Enable apache headers module
+    command: /usr/sbin/a2enmod headers
+
+  - name: Enable apache expires module
+    command: /usr/sbin/a2enmod expires
+    notify:
+      - reload apache
+
+  - name: Copy virtual host file for Ubuntu Precise
+    template: src=vhosts.conf.j2
+              dest=/etc/apache2/sites-available/default
+              backup=yes
+              owner=root
+              group=root
+              mode=0644
+    notify: restart apache
+    when: ansible_distribution == 'Ubuntu' and ansible_distribution_release == 'precise'
+
+  - name: Copy virtual host file for Ubuntu Trusty
+    template: src=vhosts.conf.j2
+              dest=/etc/apache2/sites-available/000-default.conf
+              backup=yes
+              owner=root
+              group=root
+              mode=0644
+    notify: restart apache
+    when: ansible_distribution == 'Ubuntu' and ansible_distribution_release == 'trusty'
+
+  - shell: grep -c 'APACHE_RUN_USER=www-data' /etc/apache2/envvars
+    register: APACHE_RUN_USER
+  - name: Changing Apache user
+    command: "sed -i 's/APACHE_RUN_USER=www-data/APACHE_RUN_USER=vagrant/' /etc/apache2/envvars"
+    when: APACHE_RUN_USER == 1
+
+  - shell: grep -c 'APACHE_RUN_GROUP=www-data' /etc/apache2/envvars
+    register: APACHE_RUN_GROUP
+  - name: Changing Apache Group
+    command: "sed -i 's/APACHE_RUN_GROUP=www-data/APACHE_RUN_GROUP=vagrant/' /etc/apache2/envvars"
+    when: APACHE_RUN_GROUP == 1
+    notify: restart apache
+
+  - name: Download Latest Wordpress version
+    get_url: url=https://wordpress.org/latest.tar.gz dest=/vagrant/latest.tar.gz
+    register: getstatus
+
+  - name: Extract site folder
+    command: tar zxf /vagrant/latest.tar.gz
+    when: getstatus.changed
+    register: tarstatus
+
+  - name: Remove latest.tar.gz file
+    command: rm /vagrant/latest.tar.gz
+    when: tarstatus.changed
